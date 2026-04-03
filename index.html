@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lightning Unified Video Editing via In-Context Sparse Attention</title>
+  <style>
+    :root {
+      --paper: #f5efe5;
+      --paper-deep: #ece3d4;
+      --card: rgba(255, 252, 247, 0.84);
+      --ink: #17191f;
+      --muted: #666a76;
+      --line: rgba(25, 27, 34, 0.12);
+      --shadow: 0 22px 60px rgba(29, 26, 19, 0.12);
+      --shadow-soft: 0 12px 32px rgba(29, 26, 19, 0.08);
+      --prompt-bg: rgba(17, 20, 28, 0.94);
+      --prompt-ink: #f7f2e9;
+      --label-bg: rgba(248, 242, 232, 0.88);
+      --label-ink: #23262f;
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --max-width: 1220px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      background-color: var(--paper);
+      background-image:
+        radial-gradient(circle at top, rgba(164, 128, 79, 0.18), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(89, 91, 107, 0.08), transparent 26%),
+        repeating-linear-gradient(0deg, rgba(105, 90, 69, 0.025) 0 1px, transparent 1px 5px),
+        repeating-linear-gradient(90deg, rgba(105, 90, 69, 0.02) 0 1px, transparent 1px 5px),
+        linear-gradient(180deg, var(--paper) 0%, var(--paper-deep) 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 24%),
+        radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.25), transparent 18%);
+      opacity: 0.7;
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      width: min(calc(100% - 32px), var(--max-width));
+      margin: 0 auto;
+      padding: 56px 0 72px;
+    }
+
+    .hero {
+      margin-bottom: 40px;
+      padding: 8px 4px 18px;
+      text-align: center;
+    }
+
+    .hero::after {
+      content: "";
+      display: block;
+      width: min(220px, 40vw);
+      height: 1px;
+      margin: 26px auto 0;
+      background: linear-gradient(90deg, transparent, rgba(23, 25, 31, 0.28), transparent);
+    }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: "Iowan Old Style", "Baskerville", "Palatino Linotype", Georgia, serif;
+      font-size: clamp(2.6rem, 6vw, 5.1rem);
+      font-weight: 600;
+      line-height: 0.98;
+      letter-spacing: -0.05em;
+      text-wrap: balance;
+    }
+
+    .gallery {
+      display: grid;
+      gap: 22px;
+    }
+
+    .demo-card {
+      position: relative;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: var(--card);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+      transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+      outline: none;
+    }
+
+    .demo-card:hover,
+    .demo-card:focus-within,
+    .demo-card.is-active {
+      transform: translateY(-4px);
+      border-color: rgba(23, 25, 31, 0.2);
+      box-shadow: var(--shadow);
+    }
+
+    .prompt {
+      max-height: 0;
+      margin: 0;
+      padding: 0 18px;
+      overflow: hidden;
+      border-radius: 20px;
+      background: var(--prompt-bg);
+      color: var(--prompt-ink);
+      opacity: 0;
+      transform: translateY(-8px);
+      transition:
+        max-height 280ms ease,
+        margin-bottom 280ms ease,
+        padding 280ms ease,
+        opacity 200ms ease,
+        transform 280ms ease;
+    }
+
+    .demo-card.is-hovered .prompt,
+    .demo-card:focus-within .prompt,
+    .demo-card.is-active .prompt {
+      max-height: 320px;
+      margin-bottom: 16px;
+      padding: 16px 18px;
+      opacity: 1;
+      transform: translateY(0);
+      overflow: auto;
+    }
+
+    .prompt p {
+      margin: 0;
+      font-size: 0.97rem;
+      line-height: 1.62;
+      text-wrap: pretty;
+    }
+
+    .prompt::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .prompt::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    .media-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .panel {
+      position: relative;
+      margin: 0;
+      overflow: hidden;
+      border: 1px solid rgba(17, 20, 28, 0.08);
+      border-radius: var(--radius-lg);
+      background: #0f1117;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    .panel::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 20%),
+        linear-gradient(0deg, rgba(0, 0, 0, 0.1), transparent 28%);
+    }
+
+    .panel video {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      background: #07080b;
+      transition: transform 320ms ease, filter 320ms ease;
+    }
+
+    .demo-card.is-hovered .panel video,
+    .demo-card:focus-within .panel video,
+    .demo-card.is-active .panel video {
+      transform: scale(1.018);
+      filter: saturate(1.02) contrast(1.02);
+    }
+
+    .panel-label {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 2;
+      padding: 6px 10px;
+      border: 1px solid rgba(23, 25, 31, 0.1);
+      border-radius: 999px;
+      background: var(--label-bg);
+      color: var(--label-ink);
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      backdrop-filter: blur(8px);
+    }
+
+    @media (max-width: 900px) {
+      .page {
+        width: min(calc(100% - 24px), var(--max-width));
+        padding-top: 40px;
+      }
+
+      .gallery {
+        gap: 18px;
+      }
+
+      .demo-card {
+        padding: 14px;
+      }
+
+      .media-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      h1 {
+        font-size: clamp(2.15rem, 10vw, 3.25rem);
+      }
+
+      .eyebrow {
+        letter-spacing: 0.18em;
+      }
+
+      .prompt p {
+        font-size: 0.93rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">ICML Rebuttal Demo</p>
+      <h1>Lightning Unified Video Editing via In-Context Sparse Attention</h1>
+    </header>
+
+    <section id="gallery" class="gallery" aria-label="Video editing demos"></section>
+  </main>
+
+  <script>
+    const demos = [
+      {
+        prompt: `Style transfer video. Transformation: Render the entire video in a fluid, expressive watercolor painting style. The white substance becomes translucent layers of watercolor pigment with defined wet-on-wet edges. Reinterpret the movement and form with swirling washes of deep cobalt blue, ultramarine, and warm canary yellow. Ensure natural paper texture is visible through the washes, and the highlights are preserved as the natural white of the paper. Maintain the same motion and object structure as the original video, but with a dreamy, painterly aesthetic.`,
+        source: "videos/up_left/1.mp4",
+        target: "videos/up_right/1.mp4"
+      },
+      {
+        prompt: `A vibrant watercolor and impasto style video, showing a stack of pancakes dripping with chocolate sauce and topped with strawberries and a single white grape, with peaches and a jar of juice in the background on a colorful patterned tablecloth and wooden table, maintaining smooth movement of the chocolate.`,
+        source: "videos/up_left/2.mp4",
+        target: "videos/up_right/2.mp4"
+      },
+      {
+        prompt: `Render the entire video in a vibrant, classic 8-bit / 16-bit pixel art style. The man's movement and gestures are reinterpreted by a pixelated character. The kitchen environment, including cabinets, potted plants, and the window view, are simplified into distinct pixel-block patterns. The colors should be bright and saturated, resembling classic video game graphics. Maintain the original motion and object layout, but entirely within the pixel aesthetic.`,
+        source: "videos/up_left/3.mp4",
+        target: "videos/up_right/3.mp4"
+      },
+      {
+        prompt: `Remove the horse from the video while ensuring that the character's movements and posture remain unchanged.`,
+        source: "videos/up_left/4.mp4",
+        target: "videos/up_right/4.mp4"
+      },
+      {
+        prompt: `Modify the man's white long-sleeved dress shirt to a deep-blue long-sleeved dress shirt. All other elements of the scene, including the microscope, the plants, the shelves, and the woman's scrubs, remain as shown in the source video.`,
+        source: "videos/up_left/5.mp4",
+        target: "videos/up_right/5.mp4"
+      },
+      {
+        prompt: `This is a wide-angle tracking shot in which the motorcycle and its rider have been removed from the original footage, leaving everything else unchanged. The subject remains the road situated along the city's waterfront bathed in the deep blue hues of twilight, yet the frame is now entirely devoid of human presence.`,
+        source: "videos/up_left/6.mp4",
+        target: "videos/up_right/6.mp4"
+      },
+      {
+        prompt: `Replace the original natural landscape background with a starry sky against a black backdrop. The starry sky rotates, while the character's walking gait remains unchanged.`,
+        source: "videos/up_left/7.mp4",
+        target: "videos/up_right/7.mp4"
+      },
+      {
+        prompt: `This is a long take filmed from an aerial perspective, enhanced by the addition of a moving black SUV to the original footage: a black SUV swiftly enters the frame from below, driving smoothly across the bridge toward the distance, traveling in the same direction as the white truck present in the original video. The background remains unchanged, with the lingering glow of the sunset casting a long, shimmering streak of gold across the rippling water. The bridge spanning the lake stretches out toward the distant mountains beneath the evening sun, while the few vehicles originally present on the roadway continue their steady progress. The newly added black SUV casts a faint shadow upon the road surface, its paintwork reflecting the warm sunlight. As the vehicle advances, the camera maintains a steady overhead angle, capturing the tranquil yet majestic atmosphere of the bridge, the lake, and the surrounding forest at twilight.`,
+        source: "videos/up_left/8.mp4",
+        target: "videos/up_right/8.mp4"
+      },
+      {
+        prompt: `Positioned slightly to the right of the center of the frame, a white sailboat rests serenely. Adorned with crisp, triangular white sails, the vessel sways gently upon the water amidst the subtle undulation of the waves, casting a distinct, shimmering white reflection into the deep blue depths beneath its hull.`,
+        source: "videos/up_left/9.mp4",
+        target: "videos/up_right/9.mp4"
+      }
+    ];
+
+    const gallery = document.getElementById("gallery");
+
+    function createPanel(label, src, index) {
+      const figure = document.createElement("figure");
+      figure.className = "panel";
+
+      const badge = document.createElement("span");
+      badge.className = "panel-label";
+      badge.textContent = label;
+
+      const video = document.createElement("video");
+      video.src = src;
+      video.muted = true;
+      video.loop = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      video.setAttribute("aria-label", `${label} video ${index}`);
+      video.setAttribute("muted", "");
+      video.setAttribute("playsinline", "");
+
+      figure.appendChild(badge);
+      figure.appendChild(video);
+      return figure;
+    }
+
+    demos.forEach((demo, index) => {
+      const card = document.createElement("article");
+      card.className = "demo-card";
+      card.tabIndex = 0;
+
+      const prompt = document.createElement("div");
+      prompt.className = "prompt";
+
+      const promptText = document.createElement("p");
+      promptText.textContent = demo.prompt;
+      prompt.appendChild(promptText);
+
+      const mediaGrid = document.createElement("div");
+      mediaGrid.className = "media-grid";
+      mediaGrid.appendChild(createPanel("Source", demo.source, index + 1));
+      mediaGrid.appendChild(createPanel("Target", demo.target, index + 1));
+
+      card.appendChild(prompt);
+      card.appendChild(mediaGrid);
+      gallery.appendChild(card);
+    });
+
+    const prefersTouch = window.matchMedia("(hover: none), (pointer: coarse)");
+    const cards = Array.from(document.querySelectorAll(".demo-card"));
+    const panels = Array.from(document.querySelectorAll(".panel"));
+
+    function clearActiveCards(except) {
+      cards.forEach((card) => {
+        if (card !== except) {
+          card.classList.remove("is-active");
+        }
+      });
+    }
+
+    cards.forEach((card) => {
+      card.addEventListener("click", () => {
+        if (!prefersTouch.matches) {
+          return;
+        }
+
+        const willActivate = !card.classList.contains("is-active");
+        clearActiveCards(card);
+        card.classList.toggle("is-active", willActivate);
+      });
+    });
+
+    panels.forEach((panel) => {
+      const card = panel.closest(".demo-card");
+
+      panel.addEventListener("mouseenter", () => {
+        if (!card) {
+          return;
+        }
+
+        card.classList.add("is-hovered");
+      });
+
+      panel.addEventListener("mouseleave", () => {
+        if (!card) {
+          return;
+        }
+
+        card.classList.remove("is-hovered");
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!prefersTouch.matches) {
+        return;
+      }
+
+      if (!event.target.closest(".demo-card")) {
+        clearActiveCards(null);
+      }
+    });
+
+    const videos = Array.from(document.querySelectorAll("video"));
+    const visibleVideos = new Set();
+
+    function syncVideo(video, shouldPlay) {
+      if (document.hidden || !shouldPlay) {
+        video.pause();
+        return;
+      }
+
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {});
+      }
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            visibleVideos.add(entry.target);
+            syncVideo(entry.target, true);
+          } else {
+            visibleVideos.delete(entry.target);
+            syncVideo(entry.target, false);
+          }
+        });
+      },
+      {
+        threshold: 0.45
+      }
+    );
+
+    videos.forEach((video) => observer.observe(video));
+
+    document.addEventListener("visibilitychange", () => {
+      videos.forEach((video) => {
+        syncVideo(video, visibleVideos.has(video));
+      });
+    });
+  </script>
+</body>
+</html>
